@@ -1,7 +1,6 @@
 import tensorflow as tf
 from tensorflow import keras
 import lstm
-
 import numpy as np
 import os
 import time
@@ -10,9 +9,14 @@ import pickle
 class MyModel(tf.keras.Model):
     def __init__(self):
         super(MyModel, self).__init__()
-        #self.flatten = tf.keras.layers.Flatten()
-        #self.rnn = tf.keras.layers.RNN(tf.keras.layers.LSTMCell(256))
-        self.rnn = lstm.Rnn(256)
+
+
+        # office lstm
+        self.rnn = tf.keras.layers.RNN(tf.keras.layers.LSTMCell(256))
+        # my lstm
+        #self.rnn = lstm.Rnn(256)
+
+
         self.d1 = tf.keras.layers.Dense(128, activation="relu")
         self.d2 = tf.keras.layers.Dense(10, activation="softmax")
     def call(self, x):
