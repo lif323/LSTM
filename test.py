@@ -12,10 +12,9 @@ class MyModel(tf.keras.Model):
 
 
         # office lstm
-        self.rnn = tf.keras.layers.RNN(tf.keras.layers.LSTMCell(256))
+        #self.rnn = tf.keras.layers.RNN(tf.keras.layers.LSTMCell(256))
         # my lstm
-        #self.rnn = lstm.Rnn(256)
-
+        self.rnn = lstm.Rnn(256)
 
         self.d1 = tf.keras.layers.Dense(128, activation="relu")
         self.d2 = tf.keras.layers.Dense(10, activation="softmax")
@@ -78,9 +77,9 @@ def train():
         list_time_cost.append(cost)
         list_acc.append(train_acc.result().numpy())
         print("Time: {} s, Epoch: {}, loss: {}, acc: {}".format(cost, epoch, train_loss.result(), train_acc.result()))
-    with open("./data/lstm_acc.pkl", "wb") as fw:
+    with open("./data/my_lstm_acc.pkl", "wb") as fw:
         pickle.dump(list_acc, fw)
-    with open("./data/lstm_time_cost.pkl", "wb") as fw:
+    with open("./data/my_lstm_time_cost.pkl", "wb") as fw:
         pickle.dump(list_time_cost, fw)
 
 if __name__ == "__main__":
