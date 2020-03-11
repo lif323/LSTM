@@ -12,6 +12,6 @@
 ├── recurrent.py tensorflow lstm及相关组件的源码
 └── test.py 用于构建数据集，测试模型的文件
 ```
-效果对比图
+效果对比图  
 ![accuracy](./doc/accuracy.png)
 ![time_cost](./doc/time_cost.png)
