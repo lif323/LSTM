@@ -13,44 +13,47 @@ class LSTM_CELL(tf.keras.layers.Layer):
 
     def build(self, input_shape):
         input_dim = input_shape[-1]
-        self.w = self.add_weight(shape=(input_dim, self.units * 4), name='kernel',
+        self.lstm_w = self.add_weight(shape=(input_dim, self.units * 4), name='kernel',
             initializer=initializers.get('glorot_uniform'))
 
-        self.u = self.add_weight(shape=(self.units, self.units * 4),
+        self.lstm_u = self.add_weight(shape=(self.units, self.units * 4),
                                                 name='recurrent_kernel',
                                                 initializer=initializers.get('orthogonal'))
-        self.bias = self.add_weight(
+        self.lstm_b = self.add_weight(
             shape=(self.units * 4), name='bias',
             initializer=initializers.get('zeros'))
 
-        self.recurrent_activation = activations.get('hard_sigmoid')
-        self.activation = activations.get('tanh')
+        self.lstm_recurrent_activation = activations.get('hard_sigmoid')
+        self.lstm_activation = activations.get('tanh')
 
-    def call(self, inputs, states):
-        last_h = states[0]
-        last_c = states[1]
-        w_i, w_f, w_c, w_o = tf.split(self.w, num_or_size_splits=4, axis=1)
-        b_i, b_f, b_c, b_o = tf.split(self.bias, num_or_size_splits=4, axis=0)
+    def call(self, inputs, states_tm1):
+        h_tm1, c_tm1 = states_tm1
+        w_i, w_f, w_c, w_o = tf.split(self.lstm_w, num_or_size_splits=4, axis=1)
+        u_i, u_f, u_c, u_o = tf.split(self.lstm_u, num_or_size_splits=4, axis=1)
+        b_i, b_f, b_c, b_o = tf.split(self.lstm_b, num_or_size_splits=4, axis=0)
         # w x
-        x_i = K.dot(inputs, w_i)
-        x_f = K.dot(inputs, w_f)
-        x_c = K.dot(inputs, w_c)
-        x_o = K.dot(inputs, w_o)
-        # w x + b
-        x_i = K.bias_add(x_i, b_i)
-        x_f = K.bias_add(x_f, b_f)
-        x_c = K.bias_add(x_c, b_c)
-        x_o = K.bias_add(x_o, b_o)
+        wx_i = tf.matmul(inputs, w_i)
+        wx_f = tf.matmul(inputs, w_f)
+        wx_c = tf.matmul(inputs, w_c)
+        wx_o = tf.matmul(inputs, w_o)
+        # u h
+        uh_i = tf.matmul(h_tm1, u_i)
+        uh_f = tf.matmul(h_tm1, u_f)
+        uh_c = tf.matmul(h_tm1, u_c)
+        uh_o = tf.matmul(h_tm1, u_o)
+        # w x + u * h + b
+        i_t = tf.add(wx_i, tf.add(uh_i, b_i))
+        f_t = tf.add(wx_i, tf.add(uh_f, b_f))
+        c_t = tf.add(wx_i, tf.add(uh_c, b_c))
+        o_t = tf.add(wx_i, tf.add(uh_o, b_o))
 
-        u_i, u_f, u_c, u_o = tf.split(self.u, num_or_size_splits=4, axis=1)
-        # w x + u * h + x
-        i = self.recurrent_activation(x_i + K.dot(last_h, u_i))
-        f = self.recurrent_activation(x_f + K.dot(last_h, u_f))
-        c = f * last_c + self.activation(x_c + K.dot(last_h, u_c))
-        o = self.recurrent_activation(x_o + K.dot(last_h, u_o))
-
+        i = self.lstm_recurrent_activation(i_t)
+        f = self.lstm_recurrent_activation(f_t)
+        c = f * c_tm1 + i * self.lstm_activation(c_t)
+        o = self.lstm_recurrent_activation(o_t)
         # 计算 h
-        h = o * self.activation(c)
+        h = o * self.lstm_activation(c)
+        return h, (h, c)
         return h, (h, c)
 
 class Rnn(tf.keras.layers.Layer):
