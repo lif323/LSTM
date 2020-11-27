@@ -13,5 +13,5 @@
 └── test.py 用于构建数据集，测试模型的文件
 ```
 效果对比图  
-![accuracy](./doc/accuracy.png)
-![time_cost](./doc/time_cost.png)
+![accuracy](./figure/accuracy.png)
+![time_cost](./figure/time_cost.png)

@@ -10,7 +10,6 @@ class MyModel(tf.keras.Model):
     def __init__(self):
         super(MyModel, self).__init__()
 
-
         # office lstm
         #self.rnn = tf.keras.layers.RNN(tf.keras.layers.LSTMCell(256))
         # my lstm
