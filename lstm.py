@@ -1,28 +1,22 @@
 import tensorflow as tf
-from tensorflow.python.keras import initializers
-from tensorflow.python.keras import backend as K
-from tensorflow.python.ops import array_ops
 from tensorflow.python.keras import activations
-from tensorflow.python.util.tf_export import keras_export
+import os
 
-class LSTM_CELL(tf.keras.layers.Layer):
+class LstmCell(tf.keras.layers.Layer):
     def __init__(self, units=256, **kwargs):
+        super(LstmCell, self).__init__(**kwargs)
         # lstm 维度
         self.units = units
-        super(LSTM_CELL, self).__init__(**kwargs)
 
     def build(self, input_shape):
         input_dim = input_shape[-1]
-        self.lstm_w = self.add_weight(shape=(input_dim, self.units * 4), name='kernel',
-            initializer=initializers.get('glorot_uniform'))
 
-        self.lstm_u = self.add_weight(shape=(self.units, self.units * 4),
-                                                name='recurrent_kernel',
-                                                initializer=initializers.get('orthogonal'))
-        self.lstm_b = self.add_weight(
-            shape=(self.units * 4), name='bias',
-            initializer=initializers.get('zeros'))
+        # trainable_variables
+        self.lstm_w = self.add_weight(shape=(input_dim, self.units * 4), name='kernel', initializer='glorot_uniform')
+        self.lstm_u = self.add_weight(shape=(self.units, self.units * 4), name='recurrent_kernel', initializer='orthogonal')
+        self.lstm_b = self.add_weight(shape=(self.units * 4), name='bias', initializer='zeros')
 
+        # activations
         self.lstm_recurrent_activation = activations.get('hard_sigmoid')
         self.lstm_activation = activations.get('tanh')
 
@@ -42,44 +36,53 @@ class LSTM_CELL(tf.keras.layers.Layer):
         uh_c = tf.matmul(h_tm1, u_c)
         uh_o = tf.matmul(h_tm1, u_o)
         # w x + u * h + b
-        i_t = tf.add(wx_i, tf.add(uh_i, b_i))
-        f_t = tf.add(wx_i, tf.add(uh_f, b_f))
-        c_t = tf.add(wx_i, tf.add(uh_c, b_c))
-        o_t = tf.add(wx_i, tf.add(uh_o, b_o))
-
+        i_t = wx_i + uh_i + b_i
+        f_t = wx_f + uh_f + b_f
+        c_t = wx_c + uh_c + b_c
+        o_t = wx_o + uh_o + b_o
+        
         i = self.lstm_recurrent_activation(i_t)
         f = self.lstm_recurrent_activation(f_t)
         c = f * c_tm1 + i * self.lstm_activation(c_t)
         o = self.lstm_recurrent_activation(o_t)
-        # 计算 h
         h = o * self.lstm_activation(c)
         return h, (h, c)
-        return h, (h, c)
 
-class Rnn(tf.keras.layers.Layer):
-    def __init__(self, units=128):
-        super(Rnn, self).__init__()
-        self.cell = LSTM_CELL(units)
-        self.init_state = None
-    def build(self, input_shape):
-        shape = input_shape.as_list()
-        n_batch = shape[0]
-        init_h = tf.zeros(shape=[n_batch, self.cell.units])
+
+class LSTM(tf.keras.layers.Layer):
+    def __init__(self, units=128, return_sequences=False):
+        super(LSTM, self).__init__()
+        self.units = units
+        self.return_sequences = return_sequences
+        self.cell = LstmCell(units)
+
+    def get_init_state(self, inputs):
+        batch_size = tf.shape(inputs)[0]
+        init_h = tf.zeros(shape=[batch_size, self.units])
         init_c = init_h
-        self.init_state = (init_h, init_c)
-
+        # get the initial state
+        return (init_h, init_c)
+    
+    @tf.function(experimental_relax_shapes=True)
     def call(self, inputs):
-        # time step
-        ts = inputs.shape.as_list()[1]
-        h, c = self.init_state
-        for i in range(ts):
-            h, (h, c) = self.cell(inputs[:, i], (h, c))
-        return h
+        # set time step as the first dimension
+        inputs = tf.transpose(inputs, perm=[1, 0, 2])
+        state = self.get_init_state(inputs[0])
+        hidden_seq = tf.TensorArray(dtype=tf.float32, size=tf.shape(inputs)[0])
+        for time_step in tf.range(tf.shape(inputs)[0]):
+            h, state = self.cell(inputs[time_step], state)
+            hidden_seq = hidden_seq.write(time_step, h)
+
+        hidden_seq = hidden_seq.stack()
+        last_hidden = hidden_seq[-1]
+        hidden_seq = tf.transpose(hidden_seq, perm=[1, 0, 2])
+        ret = tf.case([(tf.constant(self.return_sequences), lambda: hidden_seq)], default=lambda: last_hidden)
+        return ret
 
 if __name__ == "__main__":
     a = tf.random.normal(shape=(100, 10, 50))
-    rnn = Rnn(128)
-    h = rnn(a)
-    print(h.shape)
+    lstm = LSTM(128, return_sequences=True)
+    o = lstm(a)
+    print(o.shape)
 
 

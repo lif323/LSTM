@@ -1,22 +1,24 @@
 import tensorflow as tf
-from tensorflow import keras
+import time 
 import lstm
-import numpy as np
-import os
-import time
-import pickle
+import sys
 
-class MyModel(tf.keras.Model):
-    def __init__(self):
-        super(MyModel, self).__init__()
-
-        # office lstm
-        #self.rnn = tf.keras.layers.RNN(tf.keras.layers.LSTMCell(256))
-        # my lstm
-        self.rnn = lstm.Rnn(256)
-
+class OfficeLSTM(tf.keras.Model):
+    def __init__(self, lstm_units):
+        super(OfficeLSTM, self).__init__()
+        self.lstm_units = lstm_units
+        self.rnn = tf.keras.layers.RNN(tf.keras.layers.LSTMCell(self.lstm_units))
         self.d1 = tf.keras.layers.Dense(128, activation="relu")
         self.d2 = tf.keras.layers.Dense(10, activation="softmax")
+
+        # optimizer
+        self.opti = tf.keras.optimizers.Adam()
+        # loss function
+        self.loss_obj = tf.keras.losses.SparseCategoricalCrossentropy()
+        
+
+        self.metrics_loss = tf.keras.metrics.SparseCategoricalCrossentropy()
+        self.metrics_acc = tf.keras.metrics.SparseCategoricalAccuracy()
     def call(self, x):
         x = self.rnn(x)
         # [batch_size, d1.output_size], [4, 128]
@@ -24,62 +26,114 @@ class MyModel(tf.keras.Model):
         # [batch_size, d2.output_size], [4, 10]
         x = self.d2(x)
         return x
+    
+    @tf.function(experimental_relax_shapes=True)
+    def train_step(self, data, label):
+        with tf.GradientTape() as tape:
+            pred = self(data)
+            loss_val = self.loss_obj(label, pred)
+        self.metrics_loss.update_state(label, pred)
+        self.metrics_acc.update_state(label, pred)
+        grad = tape.gradient(loss_val, self.trainable_variables)
+        self.opti.apply_gradients(zip(grad, self.trainable_variables))
 
+    @tf.function(experimental_relax_shapes=True)
+    def metrics_step(self, data, label):
+        pred = self(data)
+        self.metrics_loss.update_state(label, pred)
+        self.metrics_acc.update_state(label, pred)
+
+class CustomLSTM(tf.keras.Model):
+    def __init__(self, lstm_units):
+        super(CustomLSTM, self).__init__()
+        self.lstm_units = lstm_units
+        self.rnn = lstm.LSTM(units=lstm_units)
+        self.d1 = tf.keras.layers.Dense(128, activation="relu")
+        self.d2 = tf.keras.layers.Dense(10, activation="softmax")
+
+        # optimizer
+        self.opti = tf.keras.optimizers.Adam()
+        # loss function
+        self.loss_obj = tf.keras.losses.SparseCategoricalCrossentropy()
+        # metrics
+        self.metrics_loss = tf.keras.metrics.SparseCategoricalCrossentropy()
+        self.metrics_acc = tf.keras.metrics.SparseCategoricalAccuracy()
+    def call(self, x):
+        x = self.rnn(x)
+        # [batch_size, d1.output_size], [4, 128]
+        x = tf.reshape(x, shape=[-1, self.lstm_units])
+        x = self.d1(x)
+        # [batch_size, d2.output_size], [4, 10]
+        x = self.d2(x)
+        return x
+    
+    @tf.function(experimental_relax_shapes=True)
+    def train_step(self, data, label):
+        with tf.GradientTape() as tape:
+            pred = self(data)
+            loss_val = self.loss_obj(label, pred)
+        self.metrics_loss.update_state(label, pred)
+        self.metrics_acc.update_state(label, pred)
+        grad = tape.gradient(loss_val, self.trainable_variables)
+        self.opti.apply_gradients(zip(grad, self.trainable_variables))
+
+    @tf.function(experimental_relax_shapes=True)
+    def metrics_step(self, data, label):
+        pred = self(data)
+        self.metrics_loss.update_state(label, pred)
+        self.metrics_acc.update_state(label, pred)
+
+
+def load_dataset(batch_size=32):
+    # load data
+    (train_images, train_labels), (test_images, test_labels) = tf.keras.datasets.mnist.load_data()
+    # num used
+    train_images = train_images[:6000]
+    train_labels = train_labels[:6000]
+    test_images = test_images[:1000]
+    test_labels = test_labels[:1000]
+    train_images, test_images = train_images / 255.0, test_images / 255.0
+    
+    train_images = tf.data.Dataset.from_tensor_slices(train_images).batch(batch_size)
+    train_labels = tf.data.Dataset.from_tensor_slices(train_labels).batch(batch_size)
+    train_ds = tf.data.Dataset.zip((train_images, train_labels))
+
+    test_images = tf.data.Dataset.from_tensor_slices(test_images).batch(batch_size)
+    test_labels = tf.data.Dataset.from_tensor_slices(test_labels).batch(batch_size)
+    test_ds = tf.data.Dataset.zip((test_images, test_labels))
+
+    return train_ds, test_ds
 
 @tf.function
-def train_step(model, loss, opti, images, labels, train_loss, train_acc):
-    with tf.GradientTape() as tape:
-        # pred [batch_size, n_class] (4, 10)
-        pred = model(images)
-        loss_val = loss(labels, pred)
-    train_loss.update_state(loss_val)
-    train_acc.update_state(labels, pred)
-    grad = tape.gradient(loss_val, model.trainable_variables)
-    opti.apply_gradients(zip(grad, model.trainable_variables))
+def test(model, dataset):
+    for data, label in dataset:
+        model.metrics_step(data, label)
+    tf.print("test loss: ", model.metrics_loss.result(), "acc: ", model.metrics_acc.result())
+    model.metrics_loss.reset_states()
+    model.metrics_acc.reset_states()
 
-
-
-def train():
-    # 定义优化器
-    opti = tf.keras.optimizers.Adam()
-    # 定义损失函数
-    loss = tf.keras.losses.SparseCategoricalCrossentropy()
-    # 用于记录损失值
-    train_loss = tf.keras.metrics.Mean()
-    # 记录正确率
-    train_acc = tf.keras.metrics.SparseCategoricalAccuracy()
-    # 加载数据
-    fashion_mnist = keras.datasets.fashion_mnist
-    (train_images, train_labels), _ = fashion_mnist.load_data()
-    train_images = train_images / 255.0
-    num_used = 5000
-    train_images = train_images[:num_used]
-    train_labels = train_labels[:num_used]
-    train_ds = tf.data.Dataset.from_tensor_slices((train_images, train_labels)).shuffle(10000).batch(4)
-    # 定义模型
-    model = MyModel()
-    epochs = 5
-
-    list_time_cost = list()
-    list_acc = list()
-    for epoch in range(epochs):
-        # train
-        train_loss.reset_states()
-        train_acc.reset_states()
-        # images [batch_size, height, width] (4, 28, 28)
-        # labels [batch_size]
-        start = time.time()
-        for images, labels in train_ds:
-            train_step(model, loss, opti, images, labels, train_loss, train_acc)
-        ends = time.time()
-        cost = ends - start
-        list_time_cost.append(cost)
-        list_acc.append(train_acc.result().numpy())
-        print("Time: {} s, Epoch: {}, loss: {}, acc: {}".format(cost, epoch, train_loss.result(), train_acc.result()))
-    with open("./data/my_lstm_acc.pkl", "wb") as fw:
-        pickle.dump(list_acc, fw)
-    with open("./data/my_lstm_time_cost.pkl", "wb") as fw:
-        pickle.dump(list_time_cost, fw)
+@tf.function
+def train(model, train_dataset, test_dataset, epoch=10):
+    data_size = train_dataset.cardinality()
+    for i, (data, label) in train_dataset.repeat(epoch).enumerate():
+        model.train_step(data, label)
+        if tf.equal(tf.math.floormod(i, data_size), 0):
+            tf.print("epoch: ", i / data_size, "train loss: ", model.metrics_loss.result(), "acc: ", model.metrics_acc.result(), end=", ")
+            model.metrics_loss.reset_states()
+            model.metrics_acc.reset_states()
+            test(model, test_dataset)
 
 if __name__ == "__main__":
-    train()
+    train_ds, test_ds = load_dataset()
+    test_custom_model = (int(sys.argv[1])==1)
+    if test_custom_model:
+        print("test custom lstm")
+        model = CustomLSTM(lstm_units=200)
+    else:
+        print("test offical lstm")
+        model = OfficeLSTM(lstm_units=200)
+    
+    start = time.time()
+    train(model, train_ds, test_ds)
+    end = time.time()
+    print("total time consumption: ", end-start)
